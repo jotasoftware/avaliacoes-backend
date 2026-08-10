@@ -1,4 +1,5 @@
 const axios = require("axios");
+const sharp = require("sharp");
 
 exports.getImageStream =
   async (fileId) => {
@@ -30,33 +31,46 @@ exports.getImageStream =
 
     return imageResponse.data;
   };
-
-  exports.getImageWithBase64 = async (fileId) => {
+  
+  async function getFileUrl(fileId) {
     const token = process.env.TELEGRAM_BOT_TOKEN;
   
-    // 1. pega info do arquivo
-    const fileResponse = await axios.get(
+    const { data } = await axios.get(
       `https://api.telegram.org/bot${token}/getFile`,
       {
-        params: { file_id: fileId },
+        params: {
+          file_id: fileId,
+        },
       }
     );
   
-    const filePath = fileResponse.data.result.file_path;
+    return `https://api.telegram.org/file/bot${token}/${data.result.file_path}`;
+  }
+
+  exports.getImageWithBase64 = async (fileId) => {
+    const fileUrl = await getFileUrl(fileId);
   
-    // 2. monta URL
-    const fileUrl = `https://api.telegram.org/file/bot${token}/${filePath}`;
-  
-    // 3. baixa como buffer
-    const response = await axios.get(fileUrl, {
+    const { data } = await axios.get(fileUrl, {
       responseType: "arraybuffer",
     });
   
-    const buffer = Buffer.from(response.data);
+    const originalBuffer = Buffer.from(data);
+  
+    const resizedBuffer = await sharp(originalBuffer)
+      .resize({
+        width: 1024,
+        height: 1024,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .jpeg({
+        quality: 85,
+      })
+      .toBuffer();
   
     return {
-      stream: buffer,
-      base64: `data:image/jpeg;base64,${buffer.toString("base64")}`,
+      buffer: resizedBuffer,
+      base64: `data:image/jpeg;base64,${resizedBuffer.toString("base64")}`,
     };
   };
 

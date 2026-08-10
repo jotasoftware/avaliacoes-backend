@@ -27,3 +27,17 @@ exports.uploadDocument = async (req, res) => {
     });
   }
 };
+
+ 
+exports.receberTranscricao = async (req, res) => {
+  try {
+    const { File: arquivoUrl } = req.body;
+ 
+    console.log(arquivoUrl)
+ 
+    return res.status(201).json(transcricao);
+  } catch (error) {
+    console.error(error);
+    return res.status(400).json({ error: error.message });
+  }
+};

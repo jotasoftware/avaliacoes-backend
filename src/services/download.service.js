@@ -8,10 +8,21 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const tokml = require("tokml");
-
+const { pdf } = require("pdf-to-img");
+const { extractVerticesFromPage } = require("./openai.service");
 
 const driveService = require("../services/drive.service");
-
+ 
+const LAYOUTS = {
+  2: { cols: 1, imgWidth: 572, imgHeight: 364 }, // 1x2 (1 coluna, 2 linhas) - imagem grande
+  3: { cols: 1, imgWidth: 545, imgHeight: 230 }, // 1x3 (1 coluna, 3 linhas) - imagem grande
+  6: { cols: 2, imgWidth: 280, imgHeight: 180 }, // 2x3 (2 colunas, 3 linhas) - layout original
+};
+ 
+function getLayout(qtdPorPagina) {
+  return LAYOUTS[qtdPorPagina] || LAYOUTS[6];
+}
+ 
 function chunk(array, size) {
   const result = [];
   for (let i = 0; i < array.length; i += size) {
@@ -19,7 +30,7 @@ function chunk(array, size) {
   }
   return result;
 }
-
+ 
 const streamToBuffer = (stream) =>
   new Promise((resolve, reject) => {
     const chunks = [];
@@ -27,151 +38,255 @@ const streamToBuffer = (stream) =>
     stream.on("end", () => resolve(Buffer.concat(chunks)));
     stream.on("error", reject);
   });
-
-exports.buildWordImagesFromFolder = async (folderId) => {
+ 
+// ---------------------------------------------------------------------------
+// Baixa e processa as imagens de UMA pasta.
+// ---------------------------------------------------------------------------
+async function loadImagesFromFolder(folderId, imgWidth, imgHeight) {
   const files = await driveService.listAllFilesRecursive(folderId);
   const images = [];
-
-  const TARGET_WIDTH = 275;
-  const TARGET_HEIGHT = 170;
-
+ 
   for (const file of files) {
     if (!file.mimeType?.startsWith("image/")) continue;
-
+ 
     const stream = await driveService.downloadFile(file.id);
     const originalBuffer = await streamToBuffer(stream);
-
-    // 🔥 TRUQUE DE MESTRE: Recorte centralizado (Object-fit: Cover) via Sharp
-    // Isso garante que fotos verticais ou quadradas sejam cortadas no meio sem distorcer
+ 
     const processedBuffer = await sharp(originalBuffer)
-      .resize(TARGET_WIDTH * 2, TARGET_HEIGHT * 2, { 
-        fit: "cover",        // Garante que preencha todo o espaço
-        position: "center"   // Recorta mantendo o foco no centro da foto
+      .resize(imgWidth * 2, imgHeight * 2, {
+        fit: "cover",
+        position: "center",
       })
       .toBuffer();
-
+ 
     const cleanName = file.name.replace(/\.[^/.]+$/, "");
-
-    images.push({ 
-      buffer: processedBuffer, 
-      name: cleanName 
+    images.push({ buffer: processedBuffer, name: cleanName });
+  }
+ 
+  return images;
+}
+ 
+// ---------------------------------------------------------------------------
+// Monta o card de UMA imagem (foto + legenda com o nome do arquivo).
+// Se "img" for null, monta uma caixa VAZIA (mesmo tamanho/borda, sem foto
+// nem legenda) — usada pra completar o grid até a quantidade pedida.
+// ---------------------------------------------------------------------------
+function buildImageCard(img, imgWidth, imgHeight) {
+  if (!img) {
+    return new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows: [
+        new TableRow({
+          children: [
+            new TableCell({
+              borders: {
+                top: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
+                left: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
+                right: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
+                bottom: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
+              },
+              margins: { top: 60, left: 60, right: 60, bottom: 60 },
+              children: [
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  spacing: { before: (imgHeight / 2) - 10, after: (imgHeight / 2) - 10 },
+                  children: [],
+                }),
+              ],
+            }),
+          ],
+        }),
+        new TableRow({
+          children: [
+            new TableCell({
+              borders: {
+                top: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
+                bottom: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
+                left: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
+                right: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
+              },
+              margins: { top: 60, bottom: 60, left: 60, right: 60 },
+              children: [
+                new Paragraph({
+                  text: "",
+                  alignment: AlignmentType.CENTER,
+                }),
+              ],
+            }),
+          ],
+        }),
+      ],
     });
   }
 
-  const pages = chunk(images, 8); 
-
-  const sections = pages.map((page) => {
-    const mainGridRows = [];
-
-    for (let i = 0; i < page.length; i += 2) {
-      const rowItems = page.slice(i, i + 2);
-
-      const gridRow = new TableRow({
-        children: rowItems.map((img) => {
-          const imageCardTable = new Table({
-            width: { size: 100, type: WidthType.PERCENTAGE },
-            rows: [
-              new TableRow({
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows: [
+      new TableRow({
+        children: [
+          new TableCell({
+            borders: {
+              top: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
+              left: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
+              right: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
+              bottom: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
+            },
+            margins: { top: 60, left: 60, right: 60, bottom: 60 },
+            children: [
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
                 children: [
-                  new TableCell({
-                    borders: {
-                      top: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
-                      left: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
-                      right: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
-                      bottom: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
-                    },
-                    margins: { top: 60, left: 60, right: 60, bottom: 60 },
-                    children: [
-                      new Paragraph({
-                        alignment: AlignmentType.CENTER,
-                        children: [
-                          new ImageRun({
-                            data: img.buffer,
-                            transformation: { 
-                              width: TARGET_WIDTH, 
-                              height: TARGET_HEIGHT 
-                            },
-                          }),
-                        ],
-                      }),
-                    ],
-                  }),
-                ],
-              }),
-              new TableRow({
-                children: [
-                  new TableCell({
-                    borders: {
-                      top: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
-                      bottom: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
-                      left: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
-                      right: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
-                    },
-                    margins: { top: 60, bottom: 60, left: 60, right: 60 },
-                    children: [
-                      new Paragraph({
-                        text: img.name,
-                        alignment: AlignmentType.CENTER,
-                        style: {
-                          run: { font: "Times New Roman", size: 18, color: "000000" },
-                        },
-                      }),
-                    ],
+                  new ImageRun({
+                    data: img.buffer,
+                    transformation: { width: imgWidth, height: imgHeight },
                   }),
                 ],
               }),
             ],
-          });
-
-          return new TableCell({
-            width: { size: 50, type: WidthType.PERCENTAGE },
+          }),
+        ],
+      }),
+      new TableRow({
+        children: [
+          new TableCell({
             borders: {
-              top: { style: BorderStyle.NONE },
-              bottom: { style: BorderStyle.NONE },
-              left: { style: BorderStyle.NONE },
-              right: { style: BorderStyle.NONE },
+              top: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
+              bottom: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
+              left: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
+              right: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
             },
-            margins: { top: 80, bottom: 150, left: 80, right: 80 }, 
-            children: [imageCardTable],
-          });
-        }),
-      });
-
-      mainGridRows.push(gridRow);
-    }
-
-    return {
-      properties: {
-        page: {
-          margin: { top: 1440, bottom: 500, left: 500, right: 1440 },
-        },
-      },
-      children: [
-        new Paragraph({
-          text: "RELATÓRIO FOTOGRÁFICO",
-          alignment: AlignmentType.CENTER,
-          spacing: { after: 300 },
-          style: {
-            run: { font: "Times New Roman", bold: true, size: 24, color: "000000" },
-          },
-        }),
-        new Table({
-          width: { size: 100, type: WidthType.PERCENTAGE },
+            margins: { top: 60, bottom: 60, left: 60, right: 60 },
+            children: [
+              new Paragraph({
+                text: "",
+                alignment: AlignmentType.CENTER,
+                style: {
+                  run: { font: "Times New Roman", size: 18, color: "000000" },
+                },
+              }),
+            ],
+          }),
+        ],
+      }),
+    ],
+  });
+}
+ 
+// ---------------------------------------------------------------------------
+// Monta UMA página (section) com as imagens dispostas em `cols` colunas.
+// ---------------------------------------------------------------------------
+function buildPageContent(pageImages, cols, imgWidth, imgHeight) {
+  const mainGridRows = [];
+ 
+  for (let i = 0; i < pageImages.length; i += cols) {
+    const rowItems = pageImages.slice(i, i + cols);
+ 
+    const rowCells = rowItems.map(
+      (img) =>
+        new TableCell({
+          width: { size: Math.floor(100 / cols), type: WidthType.PERCENTAGE },
           borders: {
             top: { style: BorderStyle.NONE },
             bottom: { style: BorderStyle.NONE },
             left: { style: BorderStyle.NONE },
             right: { style: BorderStyle.NONE },
-            insideHorizontal: { style: BorderStyle.NONE },
-            insideVertical: { style: BorderStyle.NONE },
           },
-          rows: mainGridRows,
-        }),
-      ],
-    };
-  });
+          margins: { top: 80, bottom: 150, left: 80, right: 80 },
+          children: [buildImageCard(img, imgWidth, imgHeight)],
+        })
+    );
+ 
+    // completa a linha com células vazias se a última linha estiver incompleta,
+    // pra grade não desalinhar visualmente (raro agora, já que as páginas
+    // já vêm preenchidas até o total pedido antes de chegar aqui)
+    while (rowCells.length < cols) {
+      rowCells.push(
+        new TableCell({
+          width: { size: Math.floor(100 / cols), type: WidthType.PERCENTAGE },
+          borders: {
+            top: { style: BorderStyle.NONE },
+            bottom: { style: BorderStyle.NONE },
+            left: { style: BorderStyle.NONE },
+            right: { style: BorderStyle.NONE },
+          },
+          children: [new Paragraph("")],
+        })
+      );
+    }
+ 
+    mainGridRows.push(new TableRow({ children: rowCells }));
+  }
+ 
+  return [
+    new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      borders: {
+        top: { style: BorderStyle.NONE },
+        bottom: { style: BorderStyle.NONE },
+        left: { style: BorderStyle.NONE },
+        right: { style: BorderStyle.NONE },
+        insideHorizontal: { style: BorderStyle.NONE },
+        insideVertical: { style: BorderStyle.NONE },
+      },
+      rows: mainGridRows,
+    }),
+  ];
+}
+ 
+// ---------------------------------------------------------------------------
+// Função principal
+// ---------------------------------------------------------------------------
+exports.buildWordImagesFromFolder = async (payload) => {
+  const { imagens } = payload;
+ 
+  if (!imagens || typeof imagens !== "object") {
+    throw new Error("payload.imagens deve ser um objeto { folderId: qtdPorPagina }");
+  }
+ 
+  const allChildren = [];
+  let isFirstPage = true;
+ 
+  for (const [folderId, qtdPorPaginaRaw] of Object.entries(imagens)) {
+    const qtdPorPagina = Number(qtdPorPaginaRaw);
+    const { cols, imgWidth, imgHeight } = getLayout(qtdPorPagina);
+ 
+    const images = await loadImagesFromFolder(folderId, imgWidth, imgHeight);
+    const tamanhoPagina = qtdPorPagina || 8;
+    const pages = chunk(images, tamanhoPagina);
 
-  const doc = new Document({ sections });
+    // Completa a ÚLTIMA página com slots vazios (null) até o total pedido
+    // (ex: pedido "6" com só 1 imagem -> 1 preenchida + 5 vazias;
+    //  pedido "3" com só 1 imagem -> 1 preenchida + 2 vazias).
+    if (pages.length > 0) {
+      const ultimaPagina = pages[pages.length - 1];
+      while (ultimaPagina.length < tamanhoPagina) {
+        ultimaPagina.push(null);
+      }
+    }
+ 
+    for (const pageImages of pages) {
+      if (!isFirstPage) {
+        allChildren.push(new Paragraph({ children: [new PageBreak()] }));
+      }
+      isFirstPage = false;
+ 
+      allChildren.push(...buildPageContent(pageImages, cols, imgWidth, imgHeight));
+    }
+  }
+ 
+  const doc = new Document({
+    sections: [
+      {
+        properties: {
+          page: {
+            margin: { top: 1440, bottom: 500, left: 500, right: 1440 },
+          },
+        },
+        children: allChildren,
+      },
+    ],
+  });
+ 
   return await Packer.toBuffer(doc);
 };
 
@@ -355,3 +470,68 @@ function editkml(kml) {
 
   return kml;
 }
+
+
+async function pdfToImageBuffers(pdfBuffer) {
+  const document = await pdf(pdfBuffer, { scale: 4 });
+ 
+  const imageBuffers = [];
+  for await (const pageBuffer of document) {
+    imageBuffers.push(pageBuffer);
+  }
+ 
+  return imageBuffers;
+}
+ 
+
+exports.exportKmlDocumento = async (fileBuffer) => {
+  const pageImageBuffers = await pdfToImageBuffers(fileBuffer);
+ 
+  if (!pageImageBuffers.length) {
+    throw new Error("Não foi possível converter o PDF em imagens");
+  }
+ 
+  let todosVertices = [];
+ 
+  for (let i = 0; i < pageImageBuffers.length; i++) {
+    const base64 = `data:image/png;base64,${pageImageBuffers[i].toString("base64")}`;
+ 
+    try {
+      const verticesDaPagina = await extractVerticesFromPage(base64);
+      todosVertices = todosVertices.concat(verticesDaPagina);
+    } catch (err) {
+      console.error(`Erro ao processar página ${i + 1}:`, err.message);
+    }
+  }
+ 
+  if (!todosVertices.length) {
+    throw new Error("Nenhum vértice encontrado no documento");
+  }
+ 
+  let coordinates = todosVertices.map((v) => [v.lon, v.lat]);
+ 
+  const primeiro = coordinates[0];
+  const ultimo = coordinates[coordinates.length - 1];
+  if (primeiro[0] !== ultimo[0] || primeiro[1] !== ultimo[1]) {
+    coordinates = [...coordinates, primeiro];
+  }
+ 
+  const geoJson = {
+    type: "FeatureCollection",
+    features: [
+      {
+        type: "Feature",
+        properties: {},
+        geometry: {
+          type: "Polygon",
+          coordinates: [coordinates],
+        },
+      },
+    ],
+  };
+ 
+  const kml = tokml(geoJson);
+  const kmlAmarelo = editkml(kml);
+ 
+  return Buffer.from(kmlAmarelo);
+};

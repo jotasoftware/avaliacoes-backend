@@ -12,17 +12,17 @@ const token = JSON.parse(
 const { client_id, client_secret, redirect_uris } =
   credentials.installed;
 
-const oAuth2Client = new google.auth.OAuth2(
+const auth = new google.auth.OAuth2(
   client_id,
   client_secret,
   redirect_uris[0]
 );
 
-oAuth2Client.setCredentials(token);
+auth.setCredentials(token);
 
 const drive = google.drive({
   version: "v3",
-  auth: oAuth2Client,
+  auth,
 });
 
 module.exports = drive;
