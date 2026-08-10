@@ -8,3 +8,5 @@ token.json
 generateToken.js
 
 serviceAccountKey.json
+
+src/credentials/service-account.json
