@@ -10,3 +10,8 @@ generateToken.js
 serviceAccountKey.json
 
 src/credentials/service-account.json
+
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
