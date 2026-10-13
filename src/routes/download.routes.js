@@ -15,15 +15,13 @@ const upload = multer({
   },
 });
 
-router.use(validateFirebaseToken);
-
-router.post("/imagens", downloadController.exportImagesToWord);
-router.post("/documentos/:folderId", downloadController.exportFolderDocumentToWord);
+router.post("/imagens", validateFirebaseToken, downloadController.exportImagesToWord);
+router.post("/documentos/:folderId", validateFirebaseToken, downloadController.exportFolderDocumentToWord);
 
 // Rate limit só nas rotas que chamam IA (extração de polígono via visão),
 // não nas de exportação simples de Word (sem custo de IA).
+router.post("/front/car", validateFirebaseToken, downloadController.exportKmlCar);
 router.post("/car", downloadController.exportKmlCar);
-router.post("/front/car", downloadController.exportKmlCar);
 router.post("/documento", iaRateLimit, upload.single("documento"), downloadController.exportKmlDocumento);
 
 module.exports = router;

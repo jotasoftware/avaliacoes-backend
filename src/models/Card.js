@@ -36,10 +36,6 @@ const Card = sequelize.define("Card", {
     type: DataTypes.STRING,
   },
 
-  tamanho: {
-    type: DataTypes.STRING,
-  },
-
   status: {
     type: DataTypes.STRING,
     defaultValue: "todo",

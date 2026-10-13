@@ -12,12 +12,12 @@ const downloadRoutes = require("./routes/download.routes");
 const cardRoutes = require("./routes/card.routes");
 const pendenteRoutes = require("./routes/pendente.routes");
 const categoriaRoutes = require("./routes/categoria.routes");
-const Card = require("./models/Card");
+const errorHandler = require("./middlewares/errorHandler.middleware");
 
 const app = express();
 
 app.use(cors({
-  origin: "http://localhost:5173", // seu frontend React/Vite
+  origin: process.env.FRONT_URL,
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
   allowedHeaders: ["Content-Type", "Authorization"],
   exposedHeaders: ["Content-Disposition"],
@@ -30,6 +30,8 @@ app.use("/download", downloadRoutes);
 app.use("/avaliacao", cardRoutes);
 app.use("/pendente", pendenteRoutes);
 app.use("/categoria", categoriaRoutes);
+
+app.use(errorHandler);
 
 
 sequelize

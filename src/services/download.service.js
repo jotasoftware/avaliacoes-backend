@@ -1,4 +1,4 @@
-const { Document, Packer, Paragraph, ImageRun, Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle, PageBreak} = require("docx");
+const { Document, Packer, Paragraph, ImageRun, Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle, PageBreak, HeightRule } = require("docx");
 const axios = require("axios");
 const sharp = require("sharp");
 globalThis.self = globalThis;
@@ -14,8 +14,8 @@ const { extractVerticesFromPage } = require("./openai.service");
 const driveService = require("../services/drive.service");
  
 const LAYOUTS = {
-  2: { cols: 1, imgWidth: 572, imgHeight: 364 }, // 1x2 (1 coluna, 2 linhas) - imagem grande
-  3: { cols: 1, imgWidth: 545, imgHeight: 230 }, // 1x3 (1 coluna, 3 linhas) - imagem grande
+  2: { cols: 1, imgWidth: 572, imgHeight: 345 }, // 1x2 (1 coluna, 2 linhas) - imagem grande
+  3: { cols: 1, imgWidth: 545, imgHeight: 200 }, // 1x3 (1 coluna, 3 linhas) - imagem grande
   6: { cols: 2, imgWidth: 280, imgHeight: 180 }, // 2x3 (2 colunas, 3 linhas) - layout original
 };
  
@@ -67,104 +67,38 @@ async function loadImagesFromFolder(folderId, imgWidth, imgHeight) {
 }
  
 // ---------------------------------------------------------------------------
-// Monta o card de UMA imagem (foto + legenda com o nome do arquivo).
-// Se "img" for null, monta uma caixa VAZIA (mesmo tamanho/borda, sem foto
-// nem legenda) — usada pra completar o grid até a quantidade pedida.
+// Monta o card de UMA imagem (foto + legenda).
+// Se "img" for null, monta uma caixa VAZIA com a MESMA altura de uma caixa
+// com foto — pra colar a foto depois no Word sem a caixa mudar de tamanho.
 // ---------------------------------------------------------------------------
 function buildImageCard(img, imgWidth, imgHeight) {
-  if (!img) {
-    return new Table({
-      width: { size: 100, type: WidthType.PERCENTAGE },
-      rows: [
-        new TableRow({
-          children: [
-            new TableCell({
-              borders: {
-                top: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
-                left: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
-                right: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
-                bottom: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
-              },
-              margins: { top: 60, left: 60, right: 60, bottom: 60 },
-              children: [
-                new Paragraph({
-                  alignment: AlignmentType.CENTER,
-                  spacing: { before: (imgHeight / 2) - 10, after: (imgHeight / 2) - 10 },
-                  children: [],
-                }),
-              ],
-            }),
-          ],
-        }),
-        new TableRow({
-          children: [
-            new TableCell({
-              borders: {
-                top: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
-                bottom: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
-                left: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
-                right: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
-              },
-              margins: { top: 60, bottom: 60, left: 60, right: 60 },
-              children: [
-                new Paragraph({
-                  text: "",
-                  alignment: AlignmentType.CENTER,
-                }),
-              ],
-            }),
-          ],
-        }),
-      ],
-    });
-  }
+  const borda = { style: BorderStyle.SINGLE, size: 2, color: "FFFFFF" };
+  const bordas = { top: borda, bottom: borda, left: borda, right: borda };
+  const margens = { top: 60, bottom: 60, left: 60, right: 60 };
+
+  // parágrafo da foto: com imagem ou vazio, SEM espaçamento extra
+  const paragrafoFoto = new Paragraph({
+    alignment: AlignmentType.CENTER,
+    spacing: { before: 0, after: 0 },
+    children: img
+      ? [new ImageRun({ data: img.buffer, transformation: { width: imgWidth, height: imgHeight } })]
+      : [],
+  });
 
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     rows: [
       new TableRow({
-        children: [
-          new TableCell({
-            borders: {
-              top: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
-              left: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
-              right: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
-              bottom: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
-            },
-            margins: { top: 60, left: 60, right: 60, bottom: 60 },
-            children: [
-              new Paragraph({
-                alignment: AlignmentType.CENTER,
-                children: [
-                  new ImageRun({
-                    data: img.buffer,
-                    transformation: { width: imgWidth, height: imgHeight },
-                  }),
-                ],
-              }),
-            ],
-          }),
-        ],
+        // mesma altura com ou sem foto (1 px = 15 twips, + margens da célula)
+        height: { value: imgHeight * 15 + 120, rule: HeightRule.ATLEAST },
+        children: [new TableCell({ borders: bordas, margins: margens, children: [paragrafoFoto] })],
       }),
       new TableRow({
         children: [
           new TableCell({
-            borders: {
-              top: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
-              bottom: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
-              left: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
-              right: { style: BorderStyle.SINGLE, size: 2, color: "AAAAAA" },
-            },
-            margins: { top: 60, bottom: 60, left: 60, right: 60 },
-            children: [
-              new Paragraph({
-                text: "",
-                alignment: AlignmentType.CENTER,
-                style: {
-                  run: { font: "Times New Roman", size: 18, color: "000000" },
-                },
-              }),
-            ],
+            borders: bordas,
+            margins: margens,
+            children: [new Paragraph({ alignment: AlignmentType.CENTER })],
           }),
         ],
       }),

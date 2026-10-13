@@ -113,3 +113,36 @@ exports.getDocumentStream = async (fileId) => {
 
   return documentResponse.data;
 };
+
+exports.sendErrorNotification = async (error, context = {}) => {
+  const token = process.env.TELEGRAM_BOT_ERROR_TOKEN;
+  const chatId = process.env.TELEGRAM_BOT_ERROR_CHAT_ID;
+
+  if (!token || !chatId) {
+    console.error("TELEGRAM_BOT_TOKEN ou TELEGRAM_CHAT_ID não configurados");
+    return;
+  }
+
+  const contextLines = Object.entries(context)
+    .map(([key, value]) => `${key}: ${value}`)
+    .join("\n");
+
+  const text = [
+    "🚨 *Erro no backend*",
+    `\`${error.message}\``,
+    contextLines ? `\n${contextLines}` : "",
+    error.stack ? `\n\`\`\`${error.stack.slice(0, 500)}\`\`\`` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  try {
+    await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+      chat_id: chatId,
+      text,
+      parse_mode: "Markdown",
+    });
+  } catch (err) {
+    console.error("Falha ao enviar notificação pro Telegram:", err.message);
+  }
+};

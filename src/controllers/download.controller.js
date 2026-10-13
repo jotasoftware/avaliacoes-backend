@@ -1,16 +1,14 @@
 const downloadService = require("../services/download.service");
 const fs = require("fs");
 
-exports.exportImagesToWord = async (req, res) => {
+exports.exportImagesToWord = async (req, res, next) => {
   try {
-
     const { idDrive, imagens } = req.body;
 
     const buffer = await downloadService.buildWordImagesFromFolder({
       idDrive,
       imagens
     });
-
 
     res.setHeader(
       "Content-Type",
@@ -22,21 +20,17 @@ exports.exportImagesToWord = async (req, res) => {
       "attachment; filename=imagens.docx"
     );
 
-
-    fs.writeFileSync("teste.docx", buffer);
+    // fs.writeFileSync("teste.docx", buffer); // resto de debug? considerar remover
 
     return res.send(buffer);
-
-  } catch (err) {
-    console.error(err);
-
-    return res.status(500).json({
-      error: "failed_to_generate_docx"
-    });
+  } catch (error) {
+    error.status = error.status || 500;
+    error.userMessage = error.userMessage || "failed_to_generate_docx";
+    return next(error);
   }
 };
 
-exports.exportFolderDocumentToWord = async (req, res) => {
+exports.exportFolderDocumentToWord = async (req, res, next) => {
   try {
     const { folderId } = req.params;
 
@@ -55,13 +49,14 @@ exports.exportFolderDocumentToWord = async (req, res) => {
     res.setHeader("Content-Length", buffer.length);
 
     return res.send(buffer);
-  } catch (err) {
-    console.error("[exportFolderDocumentToWord] ERRO:", err);
-    return res.status(500).json({ error: "failed_to_generate_docx" });
+  } catch (error) {
+    error.status = error.status || 500;
+    error.userMessage = error.userMessage || "failed_to_generate_docx";
+    return next(error);
   }
 };
 
-exports.exportKmlCar = async (req, res) => {
+exports.exportKmlCar = async (req, res, next) => {
   try {
     const buffer = await downloadService.exportKmlCar(req.body.car);
 
@@ -76,18 +71,19 @@ exports.exportKmlCar = async (req, res) => {
     );
 
     return res.send(buffer);
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: err.message });
+  } catch (error) {
+    error.status = error.status || 500;
+    error.userMessage = error.userMessage || error.message;
+    return next(error);
   }
 };
 
-// Substitua no seu download.controller.js
-
-exports.exportKmlDocumento = async (req, res) => {
+exports.exportKmlDocumento = async (req, res, next) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ error: "Nenhum documento enviado" });
+      const error = new Error("Nenhum documento enviado");
+      error.status = 400;
+      return next(error);
     }
 
     const buffer = await downloadService.exportKmlDocumento(req.file.buffer);
@@ -103,8 +99,9 @@ exports.exportKmlDocumento = async (req, res) => {
     );
 
     return res.send(buffer);
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: err.message });
+  } catch (error) {
+    error.status = error.status || 500;
+    error.userMessage = error.userMessage || error.message;
+    return next(error);
   }
 };

@@ -2,7 +2,7 @@ const router = require("express").Router();
 
 const uploadController = require("../controllers/upload.controller"); // ajuste conforme seu arquivo real
 const { validateApiKey } = require("../middlewares/auth.middleware"); // ajuste o path/nome real
-const { iaRateLimit } = require("../middlewares/ratelimit.middleware");
+const { iaRateLimit } = require("../middlewares/rateLimit.middleware");
 
 router.use(validateApiKey);
 router.use(iaRateLimit);
