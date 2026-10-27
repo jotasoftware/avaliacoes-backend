@@ -1,4 +1,5 @@
 const downloadService = require("../services/download.service");
+const driveService = require("../services/drive.service");
 const fs = require("fs");
 
 exports.exportImagesToWord = async (req, res, next) => {
@@ -30,28 +31,38 @@ exports.exportImagesToWord = async (req, res, next) => {
   }
 };
 
+const DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
 exports.exportFolderDocumentToWord = async (req, res, next) => {
   try {
-    const { folderId } = req.params;
+    const { fileId } = req.params;
 
-    const buffer = await downloadService.buildWordDocumentFromFolder(folderId);
+    const meta = await driveService.getFileMeta(fileId);
 
-    res.setHeader(
-      "Content-Type",
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    );
+    if (meta.mimeType !== DOCX) {
+      const err = new Error("invalid_file");
+      err.status = 400;
+      err.userMessage = "invalid_file";
+      throw err;
+    }
 
+    const stream = await driveService.downloadFile(fileId);
+
+    const nome = meta.name.toLowerCase().endsWith(".docx")
+      ? meta.name
+      : `${meta.name}.docx`;
+
+    res.setHeader("Content-Type", DOCX);
     res.setHeader(
       "Content-Disposition",
-      "attachment; filename=imagens.docx"
+      `attachment; filename*=UTF-8''${encodeURIComponent(nome)}`
     );
 
-    res.setHeader("Content-Length", buffer.length);
-
-    return res.send(buffer);
+    stream.on("error", next);
+    return stream.pipe(res);
   } catch (error) {
     error.status = error.status || 500;
-    error.userMessage = error.userMessage || "failed_to_generate_docx";
+    error.userMessage = error.userMessage || "failed_to_download_document";
     return next(error);
   }
 };

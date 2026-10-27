@@ -167,9 +167,8 @@ function buildPageContent(pageImages, cols, imgWidth, imgHeight) {
   ];
 }
  
-// ---------------------------------------------------------------------------
-// Função principal
-// ---------------------------------------------------------------------------
+const DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
 exports.buildWordImagesFromFolder = async (payload) => {
   const { imagens } = payload;
  

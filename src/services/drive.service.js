@@ -1,5 +1,6 @@
 const drive = require("../config/google");
 const fs = require("fs");
+const { Readable } = require("stream");
 
 exports.uploadImage = async (stream, folderId) => {
     const result = await drive.files.create({
@@ -197,10 +198,7 @@ exports.getAvaliacaoFiles = async (folderId) => {
 
   const resultado = {
     imagens: [],
-    documentos: {
-      id: null,
-      quantidade: 0
-    }
+    documentos: []
   };
 
 
@@ -239,26 +237,17 @@ exports.getAvaliacaoFiles = async (folderId) => {
     }
   }
 
-
-
   // =====================
   // DOCUMENTOS
   // =====================
   if (documentosFolder) {
+    const words = await exports.listWords(documentosFolder.id);
 
-    const subPastasDocumentos = await drive.files.list({
-      q: `
-        '${documentosFolder.id}' in parents
-        and mimeType='application/vnd.google-apps.folder'
-        and trashed=false
-      `,
-      fields: "files(id,name)",
-    });
-  
-    resultado.documentos = {
-      id: documentosFolder.id,
-      quantidadePastas: subPastasDocumentos.data.files.length
-    };
+    resultado.documentos = words.map((w) => ({
+      id: w.id,
+      nome: w.name.replace(/\.docx$/i, ""),
+      criadoEm: w.createdTime,
+    }));
   }
 
 
@@ -297,4 +286,29 @@ exports.uploadFile = async (stream, folderId, fileName, mimeType) => {
   });
 
   return { fileId: file.data.id };
+};
+
+const DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+exports.uploadWord = async (folderId, buffer, nome) => {
+  const res = await drive.files.create({
+    requestBody: { name: nome, parents: [folderId] },
+    media: { mimeType: DOCX, body: Readable.from(buffer) },
+    fields: "id",
+  });
+  return res.data;
+};
+
+exports.listWords = async (folderId) => {
+  const res = await drive.files.list({
+    q: `'${folderId}' in parents and mimeType = '${DOCX}' and trashed = false`,
+    orderBy: "createdTime desc",
+    fields: "files(id, name, createdTime)",
+  });
+  return res.data.files;
+};
+
+exports.getFileMeta = async (fileId) => {
+  const res = await drive.files.get({ fileId, fields: "id, name, mimeType" });
+  return res.data;
 };

@@ -5,8 +5,6 @@ const driveService = require("./drive.service");
 exports.create = async (data) => {
     const { matricula, cidade, estado } = data;
 
-    // Bloqueia se já existir um Card ativo (não "done") com essa mesma
-    // combinação matricula+cidade+estado.
     const cardExistenteAtivo = await cardRepository.findByMatriculaCidadeEstado(
       matricula,
       cidade,
@@ -19,8 +17,6 @@ exports.create = async (data) => {
       );
     }
 
-    // Existia um Pendente DE ANTES (ex: o bot já mandou algo antes de
-    // alguém completar os dados aqui no front)?
     const pendenteVinculado = await pendenteRepository.findByMatriculaCidadeEstado(
       matricula,
       cidade,
@@ -32,11 +28,9 @@ exports.create = async (data) => {
     if (pendenteVinculado) {
       folderId = pendenteVinculado.id_drive;
     } else {
-      // Não existia nada -> cria a pasta nova DIRETO. Importante: NÃO
-      // usamos getOrCreateCardFolder aqui, porque ela cria um Pendente
-      // como efeito colateral (pensado pro fluxo do bot).
       const nomeUnico = `Mat ${matricula} - ${cidade} - ${estado}`;
       folderId = await driveService.createFolder(nomeUnico);
+      await driveService.getOrCreateSubFolder("Imagens", folderId)
     }
 
     const statusFinal = pendenteVinculado ? "doing" : (data.status || "todo");
@@ -90,9 +84,6 @@ exports.update = async (id, dados) => {
     throw new Error("Card não encontrado");
   }
 
-  // Se matricula/cidade/estado fazem parte da edição, checa duplicidade
-  // ANTES de salvar — usando os valores finais (o que vier em "dados",
-  // ou o que já estava salvo se não foi alterado).
   const matriculaFinal = dados.matricula ?? card.matricula;
   const cidadeFinal = dados.cidade ?? card.cidade;
   const estadoFinal = dados.estado ?? card.estado;
@@ -107,7 +98,7 @@ exports.update = async (id, dados) => {
       matriculaFinal,
       cidadeFinal,
       estadoFinal,
-      id // exclui o próprio card da busca
+      id
     );
 
     if (duplicado) {
@@ -128,8 +119,6 @@ exports.update = async (id, dados) => {
     try {
       await driveService.renameFolder(atualizado.id_drive, nomeNovo);
     } catch (err) {
-      // Não falha a edição só porque a pasta não pôde ser renomeada
-      // (ex: pasta já não existe mais no Drive por algum motivo).
       console.error(
         `Falha ao renomear pasta do Drive (id_drive=${atualizado.id_drive}):`,
         err.message
@@ -211,6 +200,7 @@ exports.getOrCreateCardFolder = async ({ matricula, cidade, estado }) => {
 
   const nomeUnico = `Mat ${matricula} - ${cidade} - ${estado}`;
   const folderId = await driveService.createFolder(nomeUnico);
+  await driveService.getOrCreateSubFolder("Imagens", folderId)
 
   const novoPendente = await pendenteRepository.create({
     matricula,

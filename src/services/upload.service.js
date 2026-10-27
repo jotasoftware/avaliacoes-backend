@@ -2,6 +2,7 @@ const telegramService = require("./telegram.service");
 const driveService = require("./drive.service");
 const aiService = require("./openai.service");
 const pdfService = require("./pdf.service");
+const wordService = require("./word.service"); 
 const { validateMatNumber } = require("../utils/validateMatNumber");
 const cardService = require("./card.service");
 
@@ -48,12 +49,37 @@ exports.processImage = async ({ files, matNumber, cidade, estado, userId }) => {
       files: results,
     };
   } catch (err) {
-    // Só desfaz se ESSA execução criou a pasta/pendente agora — se já
-    // existia (Card ou Pendente anterior), não toca em nada.
     await cardService.rollbackCardFolder(rootFolderId, novoPendente);
     throw err;
   }
 };
+
+function streamToBuffer(stream) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    stream.on("data", (chunk) => chunks.push(chunk));
+    stream.on("end", () => resolve(Buffer.concat(chunks)));
+    stream.on("error", reject);
+  });
+}
+
+async function gerarNomeDocumento(primeiraPagina, folderId) {
+  const base = await aiService.suggestDocumentName(primeiraPagina); // "Documento" se não achou
+
+  const existentes = await driveService.listWords(folderId);
+  const usados = new Set(
+    existentes.map((d) => d.name.replace(/\.docx$/i, "").toLowerCase())
+  );
+
+  let candidato = base;
+  let n = 2;
+  while (usados.has(candidato.toLowerCase())) {
+    candidato = `${base} (${n})`;
+    n++;
+  }
+
+  return candidato;
+}
 
 exports.processDocument = async ({ files, matNumber, cidade, estado, userId }) => {
   if (!files || !Array.isArray(files) || files.length === 0) {
@@ -71,39 +97,49 @@ exports.processDocument = async ({ files, matNumber, cidade, estado, userId }) =
   });
 
   try {
+    const folderIdDocumentos = await driveService.getOrCreateSubFolder(
+      "Documentos",
+      rootFolderId
+    );
+
     const results = [];
 
-    for (const file of files) {
-
-      const pdfStream = await telegramService.getDocumentStream(file.fileId);
-
+    for (let i = 0; i < files.length; i++) {
+      const pdfStream = await telegramService.getDocumentStream(files[i].fileId);
       const pages = await pdfService.pdfToImages(pdfStream);
 
-      const folderIdDocumentos = await driveService.getOrCreateSubFolder(
-        "Documentos",
-        rootFolderId
+      if (pages.length === 0) {
+        throw new Error(`Documento ${i + 1} sem páginas`);
+      }
+
+      const buffers = [];
+      for (const page of pages) {
+        buffers.push(await streamToBuffer(page.largeStream));
+      }
+
+      const wordBuffer = await wordService.buildWordDocumentFromBuffers(buffers);
+
+      require("fs").writeFileSync("./teste.docx", wordBuffer);
+
+      const nome = await gerarNomeDocumento(
+        buffers[0],
+        folderIdDocumentos
       );
 
-      const documentFolderId = await driveService.getNextNumberSubFolder(folderIdDocumentos);
+      const uploaded = await driveService.uploadWord(
+        folderIdDocumentos,
+        wordBuffer,
+        nome
+      );
 
-      for (const page of pages) {
-
-        const uploadedFile = await driveService.uploadImage(
-          page.largeStream,
-          documentFolderId
-        );
-
-        results.push({
-          fileId: uploadedFile.fileId,
-        });
-      }
+      results.push({ wordFileId: uploaded.id, pages: buffers.length });
     }
 
     return {
       success: true,
       rootFolderId,
       count: results.length,
-      files: results,
+      documents: results,
     };
   } catch (err) {
     await cardService.rollbackCardFolder(rootFolderId, novoPendente);
