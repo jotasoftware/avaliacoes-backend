@@ -119,8 +119,6 @@ exports.processDocument = async ({ files, matNumber, cidade, estado, userId }) =
 
       const wordBuffer = await wordService.buildWordDocumentFromBuffers(buffers);
 
-      require("fs").writeFileSync("./teste.docx", wordBuffer);
-
       const nome = await gerarNomeDocumento(
         buffers[0],
         folderIdDocumentos
