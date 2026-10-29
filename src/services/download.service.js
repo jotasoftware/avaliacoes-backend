@@ -45,34 +45,36 @@ const streamToBuffer = (stream) =>
 async function loadImagesFromFolder(folderId, imgWidth, imgHeight) {
   const files = await driveService.listAllFilesRecursive(folderId);
   const images = [];
- 
+
   for (const file of files) {
     if (!file.mimeType?.startsWith("image/")) continue;
- 
-    const stream = await driveService.downloadFile(file.id);
-    const originalBuffer = await streamToBuffer(stream);
- 
-    const processedBuffer = await sharp(originalBuffer)
-      .resize(imgWidth * 2, imgHeight * 2, {
-        fit: "cover",
-        position: "center",
-      })
-      .toBuffer();
- 
-    const cleanName = file.name.replace(/\.[^/.]+$/, "");
-    images.push({ buffer: processedBuffer, name: cleanName });
+
+    try {
+      const stream = await driveService.downloadFile(file.id);
+      const originalBuffer = await streamToBuffer(stream);
+
+      const processedBuffer = await sharp(originalBuffer, { unlimited: true })
+        .resize(imgWidth * 2, imgHeight * 2, { fit: "fill" })
+        .jpeg({ quality: 90 })
+        .toBuffer();
+
+      const cleanName = file.name.replace(/\.[^/.]+$/, "");
+      images.push({ buffer: processedBuffer, name: cleanName });
+    } catch (err) {
+      console.error(`Imagem ignorada (${file.name}, ${file.mimeType}):`, err.message);
+    }
   }
- 
+
   return images;
 }
- 
+
 // ---------------------------------------------------------------------------
 // Monta o card de UMA imagem (foto + legenda).
 // Se "img" for null, monta uma caixa VAZIA com a MESMA altura de uma caixa
 // com foto — pra colar a foto depois no Word sem a caixa mudar de tamanho.
 // ---------------------------------------------------------------------------
 function buildImageCard(img, imgWidth, imgHeight) {
-  const borda = { style: BorderStyle.SINGLE, size: 2, color: "FFFFFF" };
+  const borda = { style: BorderStyle.SINGLE, size: 2, color: "111111" };
   const bordas = { top: borda, bottom: borda, left: borda, right: borda };
   const margens = { top: 60, bottom: 60, left: 60, right: 60 };
 
@@ -81,7 +83,13 @@ function buildImageCard(img, imgWidth, imgHeight) {
     alignment: AlignmentType.CENTER,
     spacing: { before: 0, after: 0 },
     children: img
-      ? [new ImageRun({ data: img.buffer, transformation: { width: imgWidth, height: imgHeight } })]
+      ? [
+          new ImageRun({
+            type: "jpg",
+            data: img.buffer,
+            transformation: { width: imgWidth, height: imgHeight },
+          }),
+        ]
       : [],
   });
 
@@ -167,8 +175,9 @@ function buildPageContent(pageImages, cols, imgWidth, imgHeight) {
   ];
 }
  
-const DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-
+// ---------------------------------------------------------------------------
+// Função principal
+// ---------------------------------------------------------------------------
 exports.buildWordImagesFromFolder = async (payload) => {
   const { imagens } = payload;
  
