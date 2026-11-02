@@ -1,4 +1,4 @@
-const { Document, Packer, Paragraph, ImageRun, Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle, PageBreak, HeightRule } = require("docx");
+const { Document, Packer, Paragraph, ImageRun, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle, PageBreak, HeightRule } = require("docx");
 const axios = require("axios");
 const sharp = require("sharp");
 globalThis.self = globalThis;
@@ -59,11 +59,20 @@ async function loadImagesFromFolder(folderId, imgWidth, imgHeight) {
         .toBuffer();
 
       const cleanName = file.name.replace(/\.[^/.]+$/, "");
-      images.push({ buffer: processedBuffer, name: cleanName });
+
+      // "2-1_Bom dia" -> descricao = "Bom dia"
+      const idx = cleanName.indexOf("_");
+      const descricao = idx >= 0 ? cleanName.slice(idx + 1).trim() : "";
+
+      images.push({ buffer: processedBuffer, name: cleanName, descricao });
     } catch (err) {
       console.error(`Imagem ignorada (${file.name}, ${file.mimeType}):`, err.message);
     }
   }
+
+  images.sort((a, b) =>
+    a.name.localeCompare(b.name, "pt", { numeric: true })
+  );
 
   return images;
 }
@@ -106,7 +115,15 @@ function buildImageCard(img, imgWidth, imgHeight) {
           new TableCell({
             borders: bordas,
             margins: margens,
-            children: [new Paragraph({ alignment: AlignmentType.CENTER })],
+            children: [
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                spacing: { before: 0, after: 0 },
+                children: img?.descricao
+                  ? [new TextRun({ text: img.descricao, size: 18 })]
+                  : [],
+              }),
+            ],
           }),
         ],
       }),
