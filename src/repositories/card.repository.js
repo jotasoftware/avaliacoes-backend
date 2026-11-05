@@ -54,7 +54,7 @@ exports.findByMatriculaCidadeEstado = async (matricula, cidade, estado, excludeI
   return (
     candidatos.find(
       (c) =>
-        c.id !== excludeId &&
+        (excludeId === null || String(c.id) !== String(excludeId)) &&
         normalizar(c.cidade) === cidadeAlvo &&
         normalizar(c.estado) === estadoAlvo
     ) || null

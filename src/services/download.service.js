@@ -1,4 +1,3 @@
-const { Document, Packer, Paragraph, ImageRun, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle, PageBreak, HeightRule } = require("docx");
 const axios = require("axios");
 const sharp = require("sharp");
 globalThis.self = globalThis;
@@ -12,24 +11,7 @@ const { pdf } = require("pdf-to-img");
 const { extractVerticesFromPage } = require("./openai.service");
 
 const driveService = require("../services/drive.service");
- 
-const LAYOUTS = {
-  2: { cols: 1, imgWidth: 572, imgHeight: 345 }, // 1x2 (1 coluna, 2 linhas) - imagem grande
-  3: { cols: 1, imgWidth: 545, imgHeight: 200 }, // 1x3 (1 coluna, 3 linhas) - imagem grande
-  6: { cols: 2, imgWidth: 280, imgHeight: 180 }, // 2x3 (2 colunas, 3 linhas) - layout original
-};
- 
-function getLayout(qtdPorPagina) {
-  return LAYOUTS[qtdPorPagina] || LAYOUTS[6];
-}
- 
-function chunk(array, size) {
-  const result = [];
-  for (let i = 0; i < array.length; i += size) {
-    result.push(array.slice(i, i + size));
-  }
-  return result;
-}
+const wordService = require("./word.service");
  
 const streamToBuffer = (stream) =>
   new Promise((resolve, reject) => {
@@ -39,9 +21,7 @@ const streamToBuffer = (stream) =>
     stream.on("error", reject);
   });
  
-// ---------------------------------------------------------------------------
-// Baixa e processa as imagens de UMA pasta.
-// ---------------------------------------------------------------------------
+
 async function loadImagesFromFolder(folderId, imgWidth, imgHeight) {
   const files = await driveService.listAllFilesRecursive(folderId);
   const images = [];
@@ -77,238 +57,24 @@ async function loadImagesFromFolder(folderId, imgWidth, imgHeight) {
   return images;
 }
 
-// ---------------------------------------------------------------------------
-// Monta o card de UMA imagem (foto + legenda).
-// Se "img" for null, monta uma caixa VAZIA com a MESMA altura de uma caixa
-// com foto — pra colar a foto depois no Word sem a caixa mudar de tamanho.
-// ---------------------------------------------------------------------------
-function buildImageCard(img, imgWidth, imgHeight) {
-  const borda = { style: BorderStyle.SINGLE, size: 2, color: "111111" };
-  const bordas = { top: borda, bottom: borda, left: borda, right: borda };
-  const margens = { top: 60, bottom: 60, left: 60, right: 60 };
-
-  // parágrafo da foto: com imagem ou vazio, SEM espaçamento extra
-  const paragrafoFoto = new Paragraph({
-    alignment: AlignmentType.CENTER,
-    spacing: { before: 0, after: 0 },
-    children: img
-      ? [
-          new ImageRun({
-            type: "jpg",
-            data: img.buffer,
-            transformation: { width: imgWidth, height: imgHeight },
-          }),
-        ]
-      : [],
-  });
-
-  return new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
-    rows: [
-      new TableRow({
-        // mesma altura com ou sem foto (1 px = 15 twips, + margens da célula)
-        height: { value: imgHeight * 15 + 120, rule: HeightRule.ATLEAST },
-        children: [new TableCell({ borders: bordas, margins: margens, children: [paragrafoFoto] })],
-      }),
-      new TableRow({
-        children: [
-          new TableCell({
-            borders: bordas,
-            margins: margens,
-            children: [
-              new Paragraph({
-                alignment: AlignmentType.CENTER,
-                spacing: { before: 0, after: 0 },
-                children: img?.descricao
-                  ? [new TextRun({ text: img.descricao, size: 18 })]
-                  : [],
-              }),
-            ],
-          }),
-        ],
-      }),
-    ],
-  });
-}
- 
-// ---------------------------------------------------------------------------
-// Monta UMA página (section) com as imagens dispostas em `cols` colunas.
-// ---------------------------------------------------------------------------
-function buildPageContent(pageImages, cols, imgWidth, imgHeight) {
-  const mainGridRows = [];
- 
-  for (let i = 0; i < pageImages.length; i += cols) {
-    const rowItems = pageImages.slice(i, i + cols);
- 
-    const rowCells = rowItems.map(
-      (img) =>
-        new TableCell({
-          width: { size: Math.floor(100 / cols), type: WidthType.PERCENTAGE },
-          borders: {
-            top: { style: BorderStyle.NONE },
-            bottom: { style: BorderStyle.NONE },
-            left: { style: BorderStyle.NONE },
-            right: { style: BorderStyle.NONE },
-          },
-          margins: { top: 80, bottom: 150, left: 80, right: 80 },
-          children: [buildImageCard(img, imgWidth, imgHeight)],
-        })
-    );
- 
-    // completa a linha com células vazias se a última linha estiver incompleta,
-    // pra grade não desalinhar visualmente (raro agora, já que as páginas
-    // já vêm preenchidas até o total pedido antes de chegar aqui)
-    while (rowCells.length < cols) {
-      rowCells.push(
-        new TableCell({
-          width: { size: Math.floor(100 / cols), type: WidthType.PERCENTAGE },
-          borders: {
-            top: { style: BorderStyle.NONE },
-            bottom: { style: BorderStyle.NONE },
-            left: { style: BorderStyle.NONE },
-            right: { style: BorderStyle.NONE },
-          },
-          children: [new Paragraph("")],
-        })
-      );
-    }
- 
-    mainGridRows.push(new TableRow({ children: rowCells }));
-  }
- 
-  return [
-    new Table({
-      width: { size: 100, type: WidthType.PERCENTAGE },
-      borders: {
-        top: { style: BorderStyle.NONE },
-        bottom: { style: BorderStyle.NONE },
-        left: { style: BorderStyle.NONE },
-        right: { style: BorderStyle.NONE },
-        insideHorizontal: { style: BorderStyle.NONE },
-        insideVertical: { style: BorderStyle.NONE },
-      },
-      rows: mainGridRows,
-    }),
-  ];
-}
- 
-// ---------------------------------------------------------------------------
-// Função principal
-// ---------------------------------------------------------------------------
 exports.buildWordImagesFromFolder = async (payload) => {
   const { imagens } = payload;
- 
+
   if (!imagens || typeof imagens !== "object") {
     throw new Error("payload.imagens deve ser um objeto { folderId: qtdPorPagina }");
   }
- 
-  const allChildren = [];
-  let isFirstPage = true;
- 
+
+  const grupos = [];
+
   for (const [folderId, qtdPorPaginaRaw] of Object.entries(imagens)) {
     const qtdPorPagina = Number(qtdPorPaginaRaw);
-    const { cols, imgWidth, imgHeight } = getLayout(qtdPorPagina);
- 
+    const { imgWidth, imgHeight } = wordService.getLayout(qtdPorPagina);
+
     const images = await loadImagesFromFolder(folderId, imgWidth, imgHeight);
-    const tamanhoPagina = qtdPorPagina || 8;
-    const pages = chunk(images, tamanhoPagina);
-
-    // Completa a ÚLTIMA página com slots vazios (null) até o total pedido
-    // (ex: pedido "6" com só 1 imagem -> 1 preenchida + 5 vazias;
-    //  pedido "3" com só 1 imagem -> 1 preenchida + 2 vazias).
-    if (pages.length > 0) {
-      const ultimaPagina = pages[pages.length - 1];
-      while (ultimaPagina.length < tamanhoPagina) {
-        ultimaPagina.push(null);
-      }
-    }
- 
-    for (const pageImages of pages) {
-      if (!isFirstPage) {
-        allChildren.push(new Paragraph({ children: [new PageBreak()] }));
-      }
-      isFirstPage = false;
- 
-      allChildren.push(...buildPageContent(pageImages, cols, imgWidth, imgHeight));
-    }
-  }
- 
-  const doc = new Document({
-    sections: [
-      {
-        properties: {
-          page: {
-            margin: { top: 1440, bottom: 500, left: 500, right: 1440 },
-          },
-        },
-        children: allChildren,
-      },
-    ],
-  });
- 
-  return await Packer.toBuffer(doc);
-};
-
-exports.buildWordDocumentFromFolder = async (folderId) => {
-  const files = await driveService.listAllFilesRecursive(folderId);
-
-  const documentChildren = [];
-  const TARGET_WIDTH = 600;  
-  const TARGET_HEIGHT = 820; 
-
-  for (const file of files) {
-    if (!file.mimeType?.startsWith("image/")) continue;
-
-    const stream = await driveService.downloadFile(file.id);
-    const originalBuffer = await streamToBuffer(stream);
-
-    const processedBuffer = await sharp(originalBuffer)
-      .resize(TARGET_WIDTH * 2, TARGET_HEIGHT * 2, { 
-        fit: "cover",        
-        position: "center"   
-      })
-      .toBuffer();
-
-    documentChildren.push(
-      new Paragraph({
-        alignment: AlignmentType.CENTER,
-        children: [
-          new ImageRun({
-            data: processedBuffer,
-            transformation: { 
-              width: TARGET_WIDTH, 
-              height: TARGET_HEIGHT 
-            },
-          }),
-        ],
-      })
-    );
-
-    documentChildren.push(
-      new Paragraph({
-        children: [new PageBreak()],
-      })
-    );
+    grupos.push({ images, qtdPorPagina });
   }
 
-  if (documentChildren.length > 0) {
-    documentChildren.pop();
-  }
-
-  const doc = new Document({
-    sections: [
-      {
-        properties: {
-          page: {
-            margin: { top: 1440, bottom: 1440, left: 1440, right: 1440 },
-          },
-        },
-        children: documentChildren,
-      },
-    ],
-  });
-
-  return await Packer.toBuffer(doc);
+  return wordService.buildWordImagesDocument(grupos);
 };
 
 exports.exportKmlCar = async (args) => {
@@ -353,40 +119,44 @@ async function downloadZip(url) {
 async function zipToGeoJson(zipBuffer) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "car-"));
 
-  const zip = new AdmZip(zipBuffer);
-  zip.extractAllTo(tmpDir, true);
-  
-  const files = fs.readdirSync(tmpDir);
+  try {
+    const zip = new AdmZip(zipBuffer);
+    zip.extractAllTo(tmpDir, true);
 
-  for (const file of files) {
-    const fullPath = path.join(tmpDir, file);
+    const files = fs.readdirSync(tmpDir);
 
-    if (file.endsWith("Imovel.zip")) {
-      const innerZip = new AdmZip(fullPath);
-      innerZip.extractAllTo(tmpDir, true);
+    for (const file of files) {
+      const fullPath = path.join(tmpDir, file);
+
+      if (file.endsWith("Imovel.zip")) {
+        const innerZip = new AdmZip(fullPath);
+        innerZip.extractAllTo(tmpDir, true);
+      }
     }
+
+    const shpFile = findFile(tmpDir, ".shp");
+
+    if (!shpFile) {
+      throw new Error("No .shp file found even after extracting nested ZIPs");
+    }
+
+    const source = await shapefile.open(shpFile);
+
+    const features = [];
+
+    while (true) {
+      const result = await source.read();
+      if (result.done) break;
+      features.push(result.value);
+    }
+
+    return {
+      type: "FeatureCollection",
+      features,
+    };
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   }
-
-  const shpFile = findFile(tmpDir, ".shp");
-
-  if (!shpFile) {
-    throw new Error("No .shp file found even after extracting nested ZIPs");
-  }
-
-  const source = await shapefile.open(shpFile);
-
-  const features = [];
-
-  while (true) {
-    const result = await source.read();
-    if (result.done) break;
-    features.push(result.value);
-  }
-
-  return {
-    type: "FeatureCollection",
-    features,
-  };
 }
 
 function findFile(dir, ext) {

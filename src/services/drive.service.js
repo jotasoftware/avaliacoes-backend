@@ -195,8 +195,8 @@ exports.getAvaliacaoFiles = async (folderId) => {
     folder => folder.name === "Documentos"
   );
 
-
   const resultado = {
+    imagensFolder: imagensFolder.id,
     imagens: [],
     documentos: []
   };
@@ -250,7 +250,7 @@ exports.getAvaliacaoFiles = async (folderId) => {
     }));
   }
 
-
+  console.log(resultado)
   return resultado;
 };
 

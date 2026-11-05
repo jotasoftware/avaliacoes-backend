@@ -105,7 +105,9 @@ exports.processDocument = async ({ files, matNumber, cidade, estado, userId }) =
     const results = [];
 
     for (let i = 0; i < files.length; i++) {
-      const pdfStream = await telegramService.getDocumentStream(files[i].fileId);
+      const file = files[i];
+
+      const pdfStream = file.stream ?? (await telegramService.getDocumentStream(file.fileId));
       const pages = await pdfService.pdfToImages(pdfStream);
 
       if (pages.length === 0) {
@@ -119,18 +121,15 @@ exports.processDocument = async ({ files, matNumber, cidade, estado, userId }) =
 
       const wordBuffer = await wordService.buildWordDocumentFromBuffers(buffers);
 
-      const nome = await gerarNomeDocumento(
-        buffers[0],
-        folderIdDocumentos
-      );
+      const nome = await gerarNomeDocumento(buffers[0], folderIdDocumentos);
 
       const uploaded = await driveService.uploadWord(
         folderIdDocumentos,
         wordBuffer,
-        nome
+        `${nome}.docx`
       );
 
-      results.push({ wordFileId: uploaded.id, pages: buffers.length });
+      results.push({ wordFileId: uploaded.id, nome, pages: buffers.length });
     }
 
     return {
