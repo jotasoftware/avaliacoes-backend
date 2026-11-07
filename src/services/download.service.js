@@ -90,6 +90,67 @@ exports.exportKmlCar = async (args) => {
   return Buffer.from(kmlAmarelo);
 };
 
+exports.exportKmlIncra = async (codigoParcela) => {
+  const parcela = await getResponseIncra(codigoParcela);
+
+  const coordPorCodigo = new Map(
+    parcela.vertices.map((v) => [
+      v.codigo,
+      [dmsParaDecimal(v.logitude), dmsParaDecimal(v.latitude)],
+    ])
+  );
+
+  let coordinates = parcela.limites.map((l) => {
+    const c = coordPorCodigo.get(l.do_vertice);
+    if (!c) throw new Error(`Vértice ${l.do_vertice} não encontrado`);
+    return c;
+  });
+  coordinates.push(coordinates[0]);
+
+  const geoJson = {
+    type: "FeatureCollection",
+    features: [
+      {
+        type: "Feature",
+        properties: {},
+        geometry: { type: "Polygon", coordinates: [coordinates] },
+      },
+    ],
+  };
+
+  const kml = tokml(geoJson);
+  return Buffer.from(editkml(kml));
+};
+
+async function getResponseIncra(codigo_parcela) {
+  const { data: res } = await axios.post(
+    "https://api.infosimples.com/api/v2/consultas/incra/sigef/detalhes-parcela",
+    new URLSearchParams({
+      codigo_parcela,
+      login_cpf: process.env.INFOSIMPLES_USER,
+      login_senha: process.env.INFOSIMPLES_PASS,
+      token: process.env.INFOSIMPLES_TOKEN,
+      timeout: 300,
+    }),
+    { timeout: 300_000 }
+  );
+
+  if (res.code !== 200) {
+    throw new Error(
+      `${res.code} - ${res.code_message} - ${res.errors?.join("; ")}`
+    );
+  }
+  return res.data[0];
+}
+
+function dmsParaDecimal(dms) {
+  const m = String(dms).trim().match(/^(-?)\s*(\d+)°\s*(\d+)'\s*([\d.,]+)"?$/);
+  if (!m) throw new Error(`Coordenada inválida: ${dms}`);
+  const [, sinal, g, min, s] = m;
+  const valor = Number(g) + Number(min) / 60 + Number(s.replace(",", ".")) / 3600;
+  return sinal === "-" ? -valor : valor;
+}
+
 async function getDownloadUrl(car) {
   const { data: res } = await axios.post(
     "https://api.infosimples.com/api/v2/consultas/car/download-shapefile",

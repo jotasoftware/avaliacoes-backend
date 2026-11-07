@@ -19,6 +19,7 @@ router.post("/imagens", validateFirebaseToken, downloadController.exportImagesTo
 router.post("/documento/:fileId", validateFirebaseToken, downloadController.exportFolderDocumentToWord);
 
 router.post("/front/car", validateFirebaseToken, downloadController.exportKmlCar);
+router.post("/front/incra", validateFirebaseToken, downloadController.exportKmlIncra);
 router.post("/car", downloadController.exportKmlCar);
 router.post("/documento", iaRateLimit, upload.single("documento"), downloadController.exportKmlDocumento);
 

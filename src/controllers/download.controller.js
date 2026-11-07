@@ -89,6 +89,28 @@ exports.exportKmlCar = async (req, res, next) => {
   }
 };
 
+exports.exportKmlIncra = async (req, res, next) => {
+  try {
+    const buffer = await downloadService.exportKmlIncra(req.body.incra);
+    
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.google-earth.kml+xml"
+    );
+
+    res.setHeader(
+      "Content-Disposition",
+      'attachment; filename="CAR.kml"'
+    );
+
+    return res.send(buffer);
+  } catch (error) {
+    error.status = error.status || 500;
+    error.userMessage = error.userMessage || error.message;
+    return next(error);
+  }
+};
+
 exports.exportKmlDocumento = async (req, res, next) => {
   try {
     if (!req.file) {
