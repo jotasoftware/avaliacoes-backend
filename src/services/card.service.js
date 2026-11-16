@@ -298,6 +298,18 @@ exports.converterPendenteEmCard = async (pendenteId, dadosRestantes) => {
   }
 
   await pendenteRepository.delete(pendenteId);
+  
+  const plaudInbox = require("./plaud-inbox.service");
+  const resumos = { gerados: 0, erro: false };
 
-  return card;
+  try {
+    const r = await plaudInbox.gerarResumosDoCard(card);
+    resumos.gerados = r.gerados;
+  } catch (err) {
+    console.error(`Erro ao gerar resumos do cartão ${card.id}:`, err.message);
+    resumos.erro = true; // a conversão já foi feita; só o resumo falhou
+  }
+
+  const cardJson = typeof card.toJSON === "function" ? card.toJSON() : card;
+  return { ...cardJson, resumos };
 };

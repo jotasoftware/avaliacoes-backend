@@ -9,5 +9,7 @@ router.get("/:id", cardController.getById);
 router.put("/:id", cardController.update);
 router.delete("/:id", cardController.delete);
 router.patch("/:id/status", cardController.moveCard);
+// router.get("/:id/audios", cardController.listarAudios);
+router.get("/:id/audios/:fileId", cardController.lerAudio);
 
 module.exports = router;

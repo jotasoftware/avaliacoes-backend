@@ -1,4 +1,5 @@
 const cardService = require("../services/card.service");
+const audiosService = require("../services/audio.service");
 
 exports.create = async (req, res, next) => {
   try {
@@ -67,6 +68,30 @@ exports.moveCard = async (req, res, next) => {
   } catch (error) {
     error.status = error.status || 400;
     error.userMessage = error.userMessage || "Erro ao mover card";
+    return next(error);
+  }
+};
+
+exports.listarAudios = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const result = await audiosService.listar(id);
+    return res.status(200).json(result);
+  } catch (error) {
+    error.status = error.status || 500;
+    error.userMessage = error.userMessage || "Erro ao buscar resumos";
+    return next(error);
+  }
+};
+
+exports.lerAudio = async (req, res, next) => {
+  try {
+    const { id, fileId } = req.params;
+    const result = await audiosService.ler(id, fileId);
+    return res.status(200).json(result);
+  } catch (error) {
+    error.status = error.status || 500;
+    error.userMessage = error.userMessage || "Erro ao ler resumo";
     return next(error);
   }
 };

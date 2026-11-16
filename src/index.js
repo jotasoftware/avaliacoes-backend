@@ -12,6 +12,7 @@ const downloadRoutes = require("./routes/download.routes");
 const cardRoutes = require("./routes/card.routes");
 const pendenteRoutes = require("./routes/pendente.routes");
 const categoriaRoutes = require("./routes/categoria.routes");
+const swotRoutes = require("./routes/swot.routes");
 const errorHandler = require("./middlewares/errorHandler.middleware");
 
 const app = express();
@@ -30,6 +31,7 @@ app.use("/download", downloadRoutes);
 app.use("/avaliacao", cardRoutes);
 app.use("/pendente", pendenteRoutes);
 app.use("/categoria", categoriaRoutes);
+app.use("/swot", swotRoutes);
 
 app.use(errorHandler);
 

@@ -182,25 +182,26 @@ exports.getAvaliacaoFiles = async (folderId) => {
     fields: "files(id,name)",
   });
 
-
   const folders = foldersResponse.data.files;
-
 
   const imagensFolder = folders.find(
     folder => folder.name === "Imagens"
   );
 
-
   const documentosFolder = folders.find(
     folder => folder.name === "Documentos"
   );
 
-  const resultado = {
-    imagensFolder: imagensFolder.id,
-    imagens: [],
-    documentos: []
-  };
+  const audiosFolder = folders.find(
+    folder => folder.name === "Áudios"
+  );
 
+  const resultado = {
+    imagensFolder: imagensFolder?.id ?? null,
+    imagens: [],
+    documentos: [],
+    audios: [],
+  };
 
   // =====================
   // IMAGENS
@@ -216,7 +217,6 @@ exports.getAvaliacaoFiles = async (folderId) => {
       fields: "files(id,name)",
     });
 
-
     for (const pasta of subPastas.data.files) {
 
       const imagens = await drive.files.list({
@@ -227,7 +227,6 @@ exports.getAvaliacaoFiles = async (folderId) => {
         `,
         fields: "files(id,name)",
       });
-
 
       resultado.imagens.push({
         id: pasta.id,
@@ -250,7 +249,26 @@ exports.getAvaliacaoFiles = async (folderId) => {
     }));
   }
 
-  console.log(resultado)
+  // =====================
+  // ÁUDIOS (resumos do Plaud)
+  // =====================
+  if (audiosFolder) {
+    const audios = await drive.files.list({
+      q: `
+        '${audiosFolder.id}' in parents
+        and trashed=false
+      `,
+      fields: "files(id,name,createdTime)",
+      orderBy: "createdTime desc",
+    });
+
+    resultado.audios = audios.data.files.map((f) => ({
+      id: f.id,
+      nome: f.name,
+      criadoEm: f.createdTime,
+    }));
+  }
+
   return resultado;
 };
 
@@ -311,4 +329,60 @@ exports.listWords = async (folderId) => {
 exports.getFileMeta = async (fileId) => {
   const res = await drive.files.get({ fileId, fields: "id, name, mimeType" });
   return res.data;
+};
+
+exports.listFilesInFolder = async (folderId) => {
+  const res = await drive.files.list({
+    q: `'${folderId}' in parents and trashed=false and mimeType!='application/vnd.google-apps.folder'`,
+    fields: "files(id,name)",
+    pageSize: 100,
+  });
+  return res.data.files;
+};
+
+exports.moveFile = (fileId, fromFolderId, toFolderId) =>
+  drive.files.update({
+    fileId,
+    addParents: toFolderId,
+    removeParents: fromFolderId,
+    fields: "id",
+  });
+
+exports.trashFile = (fileId) =>
+  drive.files.update({ fileId, requestBody: { trashed: true }, fields: "id" });
+
+exports.exportDocText = async (fileId) => {
+  const res = await drive.files.export(
+    { fileId, mimeType: "text/plain" },
+    { responseType: "text" }
+  );
+  return String(res.data || "");
+};
+
+exports.uploadTextoComoDoc = async (folderId, nome, texto) => {
+  const res = await drive.files.create({
+    requestBody: {
+      name: nome,
+      parents: [folderId],
+      mimeType: "application/vnd.google-apps.document",
+    },
+    media: { mimeType: "text/plain", body: Readable.from([texto ?? ""]) },
+    fields: "id",
+  });
+  return res.data;
+};
+
+exports.findSubFolder = async (nome, parentId) => {
+  const response = await drive.files.list({
+    q: `
+      '${parentId}' in parents
+      and mimeType='application/vnd.google-apps.folder'
+      and name='${nome}'
+      and trashed=false
+    `,
+    fields: "files(id,name)",
+    pageSize: 1,
+  });
+
+  return response.data.files[0]?.id ?? null;
 };
